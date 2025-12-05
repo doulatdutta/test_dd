@@ -1,0 +1,97 @@
+//make a pine code streategy, based on fibonachi as per following consition. 
+//1. for long condition, market should be uptrend. detect higher high and higher low properly visible for two time. after making third higher high, and market commming down to form lower low, at that moment, price will go down maximum   50% to 65% (as per fibonachi) of total value from last higher low to higher high. if price come to range between 50% to 60% range and then start increasing again, go for long entry. 
+//2. for long exit, it will be terget point based. first terget will be value of last higher high. secound terget will be 150% of fibonachi (otal value from last higher low to higher high). 
+//3. same for short entry, market should be downtrend. detect lower low and lower high properly visible for two time. after making third lower low, and market going up to form lower high, at that moment, price will go up maximum 50% to 65% (as per fibonachi) of total value from last lower high to lower low. if price goes to range between 50% to 60% range and then start decreasing again, go for short entry.
+//4.  for short exit, same as above it will be terget point based. first terget will be value of last lower low. secound terget will be 150% of fibonachi (total value from last lower high to lower low).
+
+
+//@version=5
+strategy("Fibonacci Retracement Strategy", overlay=true, initial_capital=100000, default_qty_value=10, default_qty_type=strategy.percent_of_equity, commission=0.02, pyramiding=0)
+
+// --- Inputs ---
+i_len = input.int(10, title="Pivot Length", tooltip="Number of bars to the left/right for pivot detection. Higher value means major swings.")
+fib_50 = 0.50
+fib_65 = 0.65
+fib_150 = 1.50
+
+// --- Swing Point Detection (using built-in functions for simplicity) ---
+// ta.pivothigh(source, leftbars, rightbars)
+ph = ta.pivothigh(high, i_len, i_len)
+pl = ta.pivotlow(low, i_len, i_len)
+
+// Store confirmed pivot points
+var float last_ph = na
+var float last_pl = na
+var float prev_ph = na
+var float prev_pl = na
+
+if not na(ph)
+    prev_ph := last_ph
+    last_ph := ph
+
+if not na(pl)
+    prev_pl := last_pl
+    last_pl := pl
+
+// Function to calculate Fibonacci levels from a range
+get_fib_levels(low_point, high_point) =>
+    range = high_point - low_point
+    f_50 = low_point + range * fib_50
+    f_65 = low_point + range * fib_65
+    f_150_ext = low_point + range * fib_150 // 150% extension from low
+    [f_50, f_65, f_150_ext]
+
+// --- Long Conditions (Uptrend, Retracement, Entry, Targets) ---
+
+// 1. Detect an uptrend (simplified: price above a moving average and structural HH/HL implied by swings)
+// The user condition requires "properly visible" two HH/HL, which is hard to code precisely without complex logic. 
+// We rely on the detected pivots forming HH/HL sequence (last > prev)
+uptrend_detected = last_ph > prev_ph and last_pl > prev_pl
+
+// 2. Check for price entering the 50%-65% retracement zone
+if uptrend_detected and not na(last_ph) and not na(last_pl) and last_pl < last_ph
+    [f_50_long, f_65_long, f_150_long] = get_fib_levels(last_pl, last_ph)
+    
+    // Condition: Price comes down to the range and starts increasing again
+    // We check if current close is within the zone and the prior close was lower/within the zone
+    price_in_zone = close >= f_50_long and close <= f_65_long
+    started_increasing = close > open and close[1] <= f_65_long // Simple check for a bullish candle in the zone
+
+    if price_in_zone and started_increasing and strategy.position_size == 0
+        strategy.entry("Long", strategy.long, comment="Long Entry")
+        // Set targets as per condition 2
+        // First target: Last higher high (last_ph)
+        strategy.exit("Exit Long T1/SL", from_entry="Long", profit_target=last_ph / syminfo.mintick, stop_loss=f_50_long / syminfo.mintick, comment_profit="T1", comment_loss="SL")
+        // Second target: 150% extension (f_150_long)
+        strategy.exit("Exit Long T2", from_entry="Long", profit_target=f_150_long / syminfo.mintick, comment_profit="T2", when=strategy.position_size > 0)
+
+
+// --- Short Conditions (Downtrend, Retracement, Entry, Targets) ---
+// Conditions are inversed for short trades.
+
+downtrend_detected = last_pl < prev_pl and last_ph < prev_ph
+
+if downtrend_detected and not na(last_ph) and not na(last_pl) and last_ph > last_pl
+    [f_50_short, f_65_short, f_150_short_ext] = get_fib_levels(last_pl, last_ph) // Note: order matters for level calculation relative to swing direction
+    
+    // For downtrend, we consider 50-65% *upward* retracement from high to low
+    range_short = last_ph - last_pl
+    f_50_short_r = last_ph - range_short * fib_50
+    f_65_short_r = last_ph - range_short * fib_65
+    f_150_short_target = last_ph - range_short * fib_150 // 150% extension downwards
+
+    // Condition: Price goes up to the range and starts decreasing again
+    price_in_zone_short = close <= f_50_short_r and close >= f_65_short_r
+    started_decreasing = close < open and close[1] >= f_65_short_r // Simple check for a bearish candle in the zone
+
+    if price_in_zone_short and started_decreasing and strategy.position_size == 0
+        strategy.entry("Short", strategy.short, comment="Short Entry")
+        // Set targets as per condition 4
+        // First target: Last lower low (last_pl)
+        strategy.exit("Exit Short T1/SL", from_entry="Short", profit_target=last_pl / syminfo.mintick, stop_loss=f_50_short_r / syminfo.mintick, comment_profit="T1", comment_loss="SL")
+        // Second target: 150% extension (f_150_short_target)
+        strategy.exit("Exit Short T2", from_entry="Short", profit_target=f_150_short_target / syminfo.mintick, comment_profit="T2", when=strategy.position_size < 0)
+
+// Optional: Plotting for visual confirmation (for indicator version)
+// plot(ph, title="Pivot High", style=plot.style_circles, color=color.new(color.red, 0), offset=-i_len)
+// plot(pl, title="Pivot Low", style=plot.style_circles, color=color.new(color.green, 0), offset=-i_len)
